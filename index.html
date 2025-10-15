@@ -484,7 +484,7 @@
         <div class="sidebar-content" id="sidebarContent">
             <!-- Pages will be added here -->
         </div>
-        <button class="add-page-btn" onclick="createNewPage()">
+        <button class="add-page-btn" id="addPageBtn">
             <span>+</span>
             <span>New Page</span>
         </button>
@@ -492,7 +492,7 @@
 
     <div class="main-content">
         <div class="topbar">
-            <button class="toggle-sidebar" onclick="toggleSidebar()">☰</button>
+            <button class="toggle-sidebar" id="toggleSidebarBtn">☰</button>
             <div class="breadcrumb" id="breadcrumb">Workspace</div>
         </div>
         
@@ -533,6 +533,10 @@
         // Initialize
         loadData();
         renderSidebar();
+        
+        // Set up event listeners
+        document.getElementById('addPageBtn').addEventListener('click', createNewPage);
+        document.getElementById('toggleSidebarBtn').addEventListener('click', toggleSidebar);
 
         // Sidebar functions
         function toggleSidebar() {
@@ -555,8 +559,7 @@
             openPage(page.id);
         }
 
-        function deletePage(pageId, event) {
-            event.stopPropagation();
+        function deletePage(pageId) {
             if (confirm('Delete this page?')) {
                 pages = pages.filter(p => p.id !== pageId);
                 saveData();
@@ -576,14 +579,36 @@
                 return;
             }
 
-            container.innerHTML = pages.map(page => `
-                <div class="sidebar-item ${currentPage && currentPage.id === page.id ? 'active' : ''}" 
-                     onclick="openPage(${page.id})">
-                    <span class="sidebar-item-icon">${page.icon}</span>
-                    <span>${escapeHtml(page.title)}</span>
-                    <button class="delete-page-btn" onclick="deletePage(${page.id}, event)">×</button>
-                </div>
-            `).join('');
+            container.innerHTML = pages.map(page => {
+                const pageHtml = `
+                    <div class="sidebar-item ${currentPage && currentPage.id === page.id ? 'active' : ''}" 
+                         data-page-id="${page.id}">
+                        <span class="sidebar-item-icon">${page.icon}</span>
+                        <span>${escapeHtml(page.title)}</span>
+                        <button class="delete-page-btn" data-delete-id="${page.id}">×</button>
+                    </div>
+                `;
+                return pageHtml;
+            }).join('');
+            
+            // Add event listeners to sidebar items
+            container.querySelectorAll('.sidebar-item').forEach(item => {
+                const pageId = parseInt(item.dataset.pageId);
+                item.addEventListener('click', (e) => {
+                    if (!e.target.classList.contains('delete-page-btn')) {
+                        openPage(pageId);
+                    }
+                });
+            });
+            
+            // Add event listeners to delete buttons
+            container.querySelectorAll('.delete-page-btn').forEach(btn => {
+                const pageId = parseInt(btn.dataset.deleteId);
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    deletePage(pageId);
+                });
+            });
         }
 
         function openPage(pageId) {
@@ -611,17 +636,24 @@
 
             const container = document.getElementById('editorContainer');
             container.innerHTML = `
-                <div class="page-icon" onclick="changeIcon()">${currentPage.icon}</div>
+                <div class="page-icon" id="pageIcon">${currentPage.icon}</div>
                 <textarea class="page-title" 
-                          placeholder="Untitled" 
-                          oninput="updatePageTitle(this); autoResize(this)"
-                          onkeydown="handleTitleKeydown(event)">${currentPage.title}</textarea>
+                          id="pageTitle"
+                          placeholder="Untitled">${currentPage.title}</textarea>
                 <div id="blocksContainer"></div>
             `;
 
             // Auto-resize title
             const titleArea = container.querySelector('.page-title');
             autoResize(titleArea);
+            
+            // Add event listeners
+            document.getElementById('pageIcon').addEventListener('click', changeIcon);
+            document.getElementById('pageTitle').addEventListener('input', function() {
+                updatePageTitle(this);
+                autoResize(this);
+            });
+            document.getElementById('pageTitle').addEventListener('keydown', handleTitleKeydown);
 
             renderBlocks();
         }
@@ -646,25 +678,54 @@
                     <div class="block-container">
                         <div class="block ${block.type}" data-index="${index}">
                             <div class="block-controls">
-                                <button class="block-control-btn" onclick="deleteBlock(${index})">🗑️</button>
-                                <button class="block-control-btn" onclick="moveBlockUp(${index})">↑</button>
-                                <button class="block-control-btn" onclick="moveBlockDown(${index})">↓</button>
+                                <button class="block-control-btn" data-action="delete" data-block="${index}">🗑️</button>
+                                <button class="block-control-btn" data-action="up" data-block="${index}">↑</button>
+                                <button class="block-control-btn" data-action="down" data-block="${index}">↓</button>
                             </div>
                             <div class="block-content">
-                                ${isTodo ? `<input type="checkbox" class="todo-checkbox" ${block.checked ? 'checked' : ''} onchange="toggleTodo(${index})">` : ''}
+                                ${isTodo ? `<input type="checkbox" class="todo-checkbox" data-todo="${index}" ${block.checked ? 'checked' : ''}>` : ''}
                                 <textarea class="block-input" 
-                                          placeholder="${placeholder}"
-                                          oninput="updateBlock(${index}, this.value); autoResize(this)"
-                                          onkeydown="handleBlockKeydown(event, ${index})"
-                                          onfocus="currentBlockIndex = ${index}">${escapeHtml(block.content)}</textarea>
+                                          data-block-input="${index}"
+                                          placeholder="${placeholder}">${escapeHtml(block.content)}</textarea>
                             </div>
                         </div>
                     </div>
                 `;
             }).join('');
 
-            // Auto-resize all textareas
-            container.querySelectorAll('textarea').forEach(autoResize);
+            // Auto-resize all textareas and add event listeners
+            container.querySelectorAll('textarea').forEach((textarea, idx) => {
+                autoResize(textarea);
+                const blockIndex = parseInt(textarea.dataset.blockInput);
+                textarea.addEventListener('input', function() {
+                    updateBlock(blockIndex, this.value);
+                    autoResize(this);
+                });
+                textarea.addEventListener('keydown', (e) => handleBlockKeydown(e, blockIndex));
+                textarea.addEventListener('focus', () => {
+                    window.currentBlockIndex = blockIndex;
+                });
+            });
+            
+            // Add event listeners to block control buttons
+            container.querySelectorAll('.block-control-btn').forEach(btn => {
+                const action = btn.dataset.action;
+                const blockIndex = parseInt(btn.dataset.block);
+                btn.addEventListener('click', () => {
+                    if (action === 'delete') deleteBlock(blockIndex);
+                    else if (action === 'up') moveBlockUp(blockIndex);
+                    else if (action === 'down') moveBlockDown(blockIndex);
+                });
+            });
+            
+            // Add event listeners to todo checkboxes
+            container.querySelectorAll('.todo-checkbox').forEach(checkbox => {
+                const todoIndex = parseInt(checkbox.dataset.todo);
+                checkbox.addEventListener('change', () => toggleTodo(todoIndex));
+            });
+            
+            // Attach table event listeners if there are tables
+            attachTableEventListeners();
         }
 
         function renderTableBlock(block, index) {
@@ -678,7 +739,7 @@
                 <div class="block-container">
                     <div class="block" data-index="${index}">
                         <div class="block-controls">
-                            <button class="block-control-btn" onclick="deleteBlock(${index})">🗑️</button>
+                            <button class="block-control-btn" data-action="delete-table" data-block="${index}">🗑️</button>
                         </div>
                         <div class="block-content" style="width: 100%;">
                             <div class="database-container">
@@ -693,16 +754,45 @@
                                             <input type="text" 
                                                    class="database-input" 
                                                    value="${escapeHtml(cell)}"
-                                                   oninput="updateTableCell(${index}, ${rowIndex}, ${cellIndex}, this.value)">
+                                                   data-table="${index}"
+                                                   data-row="${rowIndex}"
+                                                   data-cell="${cellIndex}">
                                         `).join('')}
                                     </div>
                                 `).join('')}
-                                <button class="add-row-btn" onclick="addTableRow(${index})">+ New</button>
+                                <button class="add-row-btn" data-add-row="${index}">+ New</button>
                             </div>
                         </div>
                     </div>
                 </div>
             `;
+        }
+        
+        function attachTableEventListeners() {
+            const container = document.getElementById('blocksContainer');
+            
+            // Table cell inputs
+            container.querySelectorAll('.database-input').forEach(input => {
+                const blockIndex = parseInt(input.dataset.table);
+                const rowIndex = parseInt(input.dataset.row);
+                const cellIndex = parseInt(input.dataset.cell);
+                input.addEventListener('input', function() {
+                    updateTableCell(blockIndex, rowIndex, cellIndex, this.value);
+                });
+            });
+            
+            // Add row buttons
+            container.querySelectorAll('.add-row-btn').forEach(btn => {
+                const blockIndex = parseInt(btn.dataset.addRow);
+                btn.addEventListener('click', () => addTableRow(blockIndex));
+            });
+            
+            // Delete table buttons
+            container.querySelectorAll('[data-action="delete-table"]').forEach(btn => {
+                const blockIndex = parseInt(btn.dataset.block);
+                btn.addEventListener('click', () => deleteBlock(blockIndex));
+            });
+        }
         }
 
         function getPlaceholder(type, index) {
@@ -839,7 +929,7 @@
             const menu = document.getElementById('slashMenu');
             menu.innerHTML = slashCommands.map((cmd, index) => `
                 <div class="slash-menu-item ${index === 0 ? 'selected' : ''}" 
-                     onclick="applySlashCommand('${cmd.type}')"
+                     data-command="${cmd.type}"
                      data-index="${index}">
                     <span class="slash-menu-icon">${cmd.icon}</span>
                     <div class="slash-menu-text">
@@ -848,6 +938,12 @@
                     </div>
                 </div>
             `).join('');
+            
+            // Add click listeners to menu items
+            menu.querySelectorAll('.slash-menu-item').forEach(item => {
+                const commandType = item.dataset.command;
+                item.addEventListener('click', () => applySlashCommand(commandType));
+            });
 
             // Position menu
             const block = document.querySelector(`[data-index="${blockIndex}"]`);
@@ -952,4 +1048,23 @@
         }
 
         // Close slash menu when clicking outside
-        document.addEventListener('click',
+        document.addEventListener('click', (e) => {
+            if (slashMenuVisible && !e.target.closest('.slash-menu') && !e.target.closest('.block-input')) {
+                hideSlashMenu();
+            }
+        });
+
+        // Keyboard shortcuts
+        document.addEventListener('keydown', (e) => {
+            // Ctrl/Cmd + N for new page
+            if ((e.ctrlKey || e.metaKey) && e.key === 'n') {
+                e.preventDefault();
+                createNewPage();
+            }
+            
+            // Ctrl/Cmd + B for toggle sidebar
+            if ((e.ctrlKey || e.metaKey) && e.key === 'b') {
+                e.preventDefault();
+                toggleSidebar();
+            }
+        });
